@@ -2,85 +2,123 @@ import { InstallTabs } from '@site/src/components/InstallTabs';
 
 # React Query
 
-## Installation
+Fully typed RPC-like client for React Query v5? Oh, yes!
 
-<InstallTabs packageName="@ts-rest/react-query @tanstack/react-query" />
+```tsx
+const {
+  data,                   // <- fully typed response data
+  error,                  // <- fully typed error data
+} = tsr.getPost.useQuery({
+  queryKey: ['posts'],
+  queryData: {            // <- fully typed request data
+    params: { id: '1' },
+  },
+  staleTime: 1000,        // <- react-query options (optional)
+});
+```
 
-This is a client using `@ts-rest/react-query`, using `@tanstack/react-query` under the hood.
+:::info
 
-### Initializing QueryClientProvider
+This documentation is for React Query v5. If you are looking for the v4 docs, please click [here](/docs/react-query-v4).
 
-After installation, ensure that your React application is wrapped with `react-query`'s `QueryClientProvider`. This provider is essential for managing the state and lifecycle of your queries and mutations.
+In order to use the React Query v5 version of `@ts-rest/react-query`, you need to import `@ts-rest/react-query/v5` and not `@ts-rest/react-query`.
+
+:::
+
+## Instructions
+
+### 1. Installation
+
+<InstallTabs packageName="@ts-rest/react-query @tanstack/react-query@5" />
+
+### 2. Setup React Query
+
+If you are not familiar enough with React Query, check out the [official `@tanstack/react-query` documentation](https://tanstack.com/query/v5/docs/framework/react/overview) to learn more about it and how to set it up.
+
+Before proceeding, make sure you set up your `QueryClientProvider` at the root of your application or layout.
+
+### 3. Initialize ts-rest React Query
+
+Import your contract, and pass it with the client options to the `initTsrReactQuery` function. The client options are the same as the ones you would pass to the `initClient` function in `@ts-rest/core`.
+
+```tsx
+import { initTsrReactQuery } from '@ts-rest/react-query/v5';
+import { contract } from './contract';
+
+export const tsr = initTsrReactQuery(contract, {
+  baseUrl: 'http://localhost:3333',
+  baseHeaders: {},
+});
+```
+
+### 4. Setup ts-rest Provider
+
+Add the `tsr.ReactQueryProvider` to your root component, just below the `QueryClientProvider`. It is important that it lives as a child of the `QueryClientProvider` so that ts-rest can access the query client.
 
 ```tsx
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import React from 'react';
+import { tsr } from './tsr';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient()
 
-function App() {
-  return <QueryClientProvider client={queryClient}>...</QueryClientProvider>;
+export function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <tsr.ReactQueryProvider>{children}</tsr.ReactQueryProvider>
+    </QueryClientProvider>
+  );
 }
 ```
 
-For more detailed information, refer to the [official `react-query` documentation](https://tanstack.com/query/v4/docs/react/reference/QueryClientProvider).
+### 5.
 
-## initQueryClient
+???
 
-The below snippet is how you'd create a query client, this is pretty much the same structure as the `@ts-rest/core` client.
 
-```tsx
-import { initQueryClient } from '@ts-rest/react-query';
+### 6. Profit
 
-export const client = initQueryClient(router, {
-  baseUrl: 'http://localhost:3333',
-  baseHeaders: {},
-  api?: () => ... // <- Optional Custom API Fetcher (see below)
-});
-```
+You can now use the hooks from `tsr` in your components. The structure of the `tsr` container follows the same structure as your contract.
 
-To customise the API, follow the same docs as the core client [here](/docs/core/custom)
-
-:::tip
-
-By default, ts-rest encodes query parameters as regular URL encoded strings (with support for nested objects, arrays etc) with full decode compatibility from [`qs`](https://www.npmjs.com/package/qs)
-
-To encode query parameters as JSON, you can use the `jsonQuery` option, please note you'll need to configure your backend to support decoding JSON query parameters.
+## Usage
 
 ```tsx
-export const client = initQueryClient(router, {
-  ...,
-  jsonQuery: true
-});
+import { tsr } from './tsr';
 
-```
+const Posts = () => {
+  const tsrQueryClient = tsr.useQueryClient();
 
-:::
+  const { data, isLoading } = tsr.posts.get.useQuery({ queryKey: ['posts'] });
+  const { mutate } = tsr.posts.create.useMutation({
+    onMutate: (newPost) => {
+      // get current posts, so we can reset back to it if the mutation fails
+      const lastGoodKnown = tsrQueryClient.posts.get.getQueryData(['posts']);
 
-## useQuery and useMutation
+      // optimistically update the cache with the new post
+      tsrQueryClient.posts.get.setQueryData(['posts'], (old) => ({
+        ...old,
+        body: [
+          ...old.body,
+          {
+            ...newPost.body,
+            id: `placeholder-${Date.now()}`
+          }
+        ]
+      }));
 
-Once you've created a client using `initQueryClient`, you may traverse the object (in the exact same structure as your contract layout) to find the query or mutation you want to use.
-
-```tsx
-const queryResult = client.posts.get.useQuery(
-  ['posts'], // <- queryKey
-  { params: { id: '1' } }, // <- Query params, Params, Body etc (all typed)
-  { staleTime: 1000 }, // <- react-query options (optional)
-);
-```
-
-:::tip
-
-The design philosophy of `@ts-rest/react-query` is to make it as easy as possible to use `react-query` with `@ts-rest`. This means that the `useQuery` and `useMutation` hooks are as close to the original `react-query` hooks as possible, as such we don't abstract away from the query keys or the options. Only the query function itself!
-
-:::
-
-```tsx
-const App = () => {
-  // Effectively a useQuery hook
-  const { data, isLoading, error } = client.posts.get.useQuery(['posts']);
-
-  // Effectively a useMutation hook
-  const { mutate, isLoading } = client.posts.create.useMutation();
+      // return the old posts to be stored in mutation context
+      return { lastGoodKnown };
+    },
+    onError: (error, newPost, context) => {
+      tsrQueryClient.posts.get.setQueryData(['posts'], context.lastGoodKnown);
+    },
+    onSettled: () => {
+      // trigger a refetch regardless of it the mutation was successful or not
+      tsrQueryClient.invalidateQueries({ queryKey: ['posts'] });
+      //                 ^ QueryClient functions that do not consume or provide typed data are not wrapped by ts-rest
+      // and are provided at the root level of tsrQueryClient for convenience
+    },
+  });
 
   if (isLoading) {
     return <div>Loading...</div>;
@@ -92,13 +130,19 @@ const App = () => {
 
   return (
     <div>
-      {data.body.map((post) => (
-        <p key={post.id}>post.title</p>
-      ))}
+      <ul>
+        {data.body.map((post) => (
+          <li key={post.id}>{post.title}</li>
+        ))}
+      </ul>
+      <button onClick={() => mutate({ body: { title: 'Hello World' } })}>Create Post</button>
     </div>
   );
 };
 ```
+
+All the hooks and `QueryClient` functions have the same function signatures and options exactly as the ones from `@tanstack/react-query`,
+with the only difference being that you need to pass `queryData` instead of `queryFn`.
 
 :::info
 
@@ -108,155 +152,98 @@ The reason for this is error handling! Please see the [Relevant Docs](/docs/core
 
 :::
 
-## Error Handling
+## Infinite Queries
 
-If a request fails, the `error` property will be set to the response from the server, or the thrown error by `fetch`. This is the same as the `data` property for successful requests.
-
-By default, the type of the `error` property on the React Query hooks will only be set as `{ status: ...; body: ...; headers: ... }`, where status is a non-2xx status code, and `body`
-set to your response schema for status codes defined in your contract, or `unknown` for status codes not in your contract.
-
-However, queries and mutations can also fail for other reasons, such as network failures, or CORS errors.
-In such cases, the current default behavior may cause runtime errors if you try to access the `error.(status|body|headers)` properties without first checking if the error is an instance of `Error`.
-
-To include the `Error` exception type, you can set the `includeThrownErrorsInErrorType` option to `true` when initializing the client.
+For infinite query hooks such as `useInfiniteQuery` and `useSuspenseInfiniteQuery`, `queryData` should be a function that maps `pageParam` to the actual query data.
 
 ```tsx
-export const client = initQueryClient(router, {
-  ...,
-  includeThrownErrorsInErrorType: true
+import { tsr } from './tsr';
+
+const PAGE_SIZE = 5;
+const { data, isLoading, isError, fetchNextPage, hasNextPage } = tsr.getPosts.useInfiniteQuery({
+  queryKey: ['posts'],
+  queryData: ({ pageParam }) => ({
+    query: {
+      skip: pageParam.skip,
+      take: pageParam.take,
+    },
+  }),
+  initialPageParam: { skip: 0, take: PAGE_SIZE },
+  getNextPageParam: (lastPage, allPages) => {
+    return lastPage.body.posts.length >= PAGE_SIZE
+      ? { take: PAGE_SIZE, skip: allPages.length * PAGE_SIZE }
+      : undefined;
+  },
 });
 ```
 
-This will force you the handle these errors if you attempt to access the `error.status` property, without first checking if the error is an instance of `Error`.
-
-This will be enabled by default starting from `@ts-rest/react-query` v4.0.0.
-
-## Regular Query and Mutations
-
-`@ts-rest/react-query` allows for a regular fetch or mutation if you want, without having to initialise two different clients, one with `@ts-rest/core` and one with `@ts-rest/react-query`.
-
-```typescript
-// Normal fetch
-const { body, status } = await client.posts.get.query();
-
-// useQuery hook
-const { data, isLoading } = client.posts.get.useQuery();
-```
-
-## useInfiniteQuery
-
-One fantastic feature of `react-query` is the ability to create infinite queries. This is a great way to handle pagination.
-
-[Prisma's Docs](https://www.prisma.io/docs/concepts/components/prisma-client/pagination) explain the concepts of cursor and offset pagination fantastically, especially if you use Prisma client with `@ts-rest`
-
-### Cursor Pagination
-
-This is a simple cursor based pagination example,
-
-```typescript
-const { isLoading, data, hasNextPage, fetchNextPage } = useInfiniteQuery(
-  queryKey,
-  ({ pageParam = 1 }) => pageParam,
-  {
-    getNextPageParam: (lastPage, allPages) => lastPage.nextCursor,
-    getPreviousPageParam: (firstPage, allPages) => firstPage.prevCursor,
-  },
-);
-```
-
-### Offset Pagination
-
-This example specifically uses an API with `skip` and `take` query parameters, so this is requires slightly more configuration than a regular query (hence the complicated looking getNextPageParam)
-
-```tsx
-const PAGE_SIZE = 5;
-
-export function Index() {
-  const { isLoading, data, hasNextPage, fetchNextPage } =
-    client.getPosts.useInfiniteQuery(
-      ['posts'],
-      ({ pageParam = { skip: 0, take: PAGE_SIZE } }) => ({
-        query: { skip: pageParam.skip, take: pageParam.take },
-      }),
-      {
-        getNextPageParam: (lastPage, allPages) =>
-          lastPage.status === 200
-            ? lastPage.body.count > allPages.length * PAGE_SIZE
-              ? { take: PAGE_SIZE, skip: allPages.length * PAGE_SIZE }
-              : undefined
-            : undefined,
-      },
-    );
-
-  if (isLoading) {
-    return <div>Loading...</div>;
-  }
-
-  if (!data) {
-    return <div>No posts found</div>;
-  }
-
-  const posts = data.pages.flatMap((page) =>
-    page.status === 200 ? page.body.posts : [],
-  );
-
-  //...
-}
-```
+See the [official `react-query` documentation](https://tanstack.com/query/v5/docs/framework/react/reference/useInfiniteQuery) for more information.
 
 ## useQueries
 
-`useQueries` ([useQueries docs](https://tanstack.com/query/v4/docs/react/reference/useQueries)) is a great way to fetch multiple queries at once, or to dynamically fetch queries based on some condition. This is great because normally the number of useQuery hooks per component is fixed.
+`useQueries` ([useQueries docs](https://tanstack.com/query/v5/docs/react/reference/useQueries)) is a great way to fetch multiple queries at once, or to dynamically fetch queries based on some condition. This is great because normally the number of useQuery hooks per component is fixed.
 
 ```tsx
-const queries = client.posts.get.useQueries({
-  queries: [
-    // <- This queries array can be changed at runtime!
-    {
-      queryKey: ['posts', '1'],
-      params: {
-        id: '1',
-      },
-    },
-    {
-      queryKey: ['posts', '2'],
-      params: {
-        id: '2',
-      },
-    },
-  ],
-});
+import { tsr } from './tsr';
 
-if (queries.some((query) => query.isLoading)) {
-  return <div>Loading...</div>;
-}
+const Posts = () => {
+  const queries = tsr.posts.get.useQueries({
+    queries: [
+      // <- This queries array can be changed at runtime!
+      {
+        queryKey: ['posts', '1'],
+        queryData: {
+          id: '1',
+        },
+      },
+      {
+        queryKey: ['posts', '2'],
+        queryData: {
+          id: '2',
+        },
+      },
+    ],
+  });
 
-return (
-  <div>
-    {queries.map((query) => (
-      <p key={query.data?.body.id}>{query.data?.body.title}</p>
-    ))}
-  </div>
-);
+  if (queries.some((query) => query.isLoading)) {
+    return <div>Loading...</div>;
+  }
+
+  return (
+    <div>
+      {queries.map((query) => (
+        <p key={query.data?.body.id}>{query.data?.body.title}</p>
+      ))}
+    </div>
+  );
+};
+```
+
+## Regular Query and Mutations
+
+If you want to make `fetch` requests directly without going through React Query, we also expose `query` and `mutate` functions, so you do not have to initialize a separate fetch client.
+
+```typescript
+// Normal fetch
+const { body, status } = await tsr.posts.get.query();
+
+// useQuery hook
+const { data, isLoading } = tsr.posts.get.useQuery();
 ```
 
 ## QueryClient Helpers
 
-In addition to the hooks provided, `@ts-rest/react-query` also provides a custom hook `useTsRestQueryClient` with wrapper functions around some `QueryClient` functions to help invoke the API as well as provide some typing.
+In addition to the hooks provided, `@ts-rest/react-query` can also wrap `QueryClient` in order to fully type any function that sets or fetches data.
 
 ```tsx
-import { initQueryClient, useTsRestQueryClient } from '@ts-rest/react-query';
+import { tsr } from './tsr';
 
-export const client = initQueryClient(router);
+const Posts = () => {
+  const POSTS_QUERY_KEY = ['posts'];
 
-const App = () => {
-  const apiQueryClient = useTsRestQueryClient(client);
-
-  // You can either use apiQueryClient or client to call useQuery, useMutation, etc.
-  const { data, isLoading, error } = apiQueryClient.posts.get.useQuery([
-    'posts',
-  ]);
-  const { mutate, isLoading } = client.posts.create.useMutation();
+  const tsrQueryClient = tsr.useQueryClient();
+  const { data, isLoading } = tsr.posts.get.useQuery({ queryKey: POSTS_QUERY_KEY });
+  const { mutate } = tsr.posts.create.useMutation();
 
   const createPost = async () => {
     return mutate(
@@ -264,8 +251,8 @@ const App = () => {
       {
         onSuccess: async (data) => {
           //  this is typed ^
-          apiQueryClient.posts.get.setQueryData(['posts'], (oldPosts) => {
-            //                               this is also typed ^
+          tsrQueryClient.posts.get.setQueryData(POSTS_QUERY_KEY, (oldPosts) => {
+            //                                     this is also typed ^
             return {
               ...oldPosts,
               body: [...oldPosts.body, data.body],
@@ -295,30 +282,14 @@ const App = () => {
 };
 ```
 
-#### Functions
+## Error Handling
 
-Following the same design philosophy as the hooks, these helpers follow the original `QueryClient` function APIs as closely as possible.
-Essentially, the API is exactly the same, but instead of passing a `queryFn`, you pass the request parameters directly.
+If a request fails, the `error` property will be set to the response from the server, or the thrown error by `fetch`. This is the same as the `data` property for successful requests.
 
-- `async fetchQuery(queryKey, args, options) => Promise<SuccessResponse>`
-- `async fetchInfiniteQuery(queryKey, argsMapper, options) => Promise<InfiniteData<SuccessResponse>>`
-- `async prefetchQuery(queryKey, args, options) => Promise<void>`
-- `async prefetchInfiniteQuery(queryKey, argsMapper, options) => Promise<void>`
-- `getQueryData(queryKey, filters) => SuccessResponse | undefined`
-- `async ensureQueryData(queryKey, args, options) => Promise<SuccessResponse>`
-- `getQueriesData(filters) => [QueryKey, SuccessResponse | undefined][]`
-- `setQueryData(queryKey, updater) => SuccessResponse | undefined`
+The type of the `error` property on the React Query hooks will be set as `{ status: ...; body: ...; headers: ... } | Error`, where status is a non-2xx status code, and `body`
+set to your response schema for status codes defined in your contract, or `unknown` for status codes not in your contract.
 
-If you would like to use any of these functions outside a component or a hook, these functions are also available through the client directly, but you have to pass in the `QueryClient` instance as the first argument.
-
-Functions such as `invalidateQueries` that neither exchange typed data nor invoke the API have no benefit of being wrapped. Therefore, call these functions directly through your `QueryClient` instance.
-
-:::info
-
-Functions that may throw on failure such as `fetchQuery` will throw an error if the request fails or returns a non-2xx response.
-Be sure to handle these errors appropriately.
-
-:::
+The `Error` type is included because requests can fail without returning a response. See [Fetch#Exceptions](https://developer.mozilla.org/en-US/docs/Web/API/Window/fetch#exceptions) for more information.
 
 ## Troubleshooting
 

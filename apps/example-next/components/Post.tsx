@@ -1,27 +1,20 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import toast from 'react-hot-toast';
-import { api } from '../pages';
+import { tsr } from '../pages-tsr';
 
 export const Post = ({ postId }: { postId: string }) => {
   const router = useRouter();
 
-  const { data, error, isLoading } = api.getPost.useQuery(
-    [`post-${postId}`],
-    {
-      params: { id: postId },
-    },
-    {
-      networkMode: 'offlineFirst',
-      enabled: postId !== undefined,
-      onSettled: () => {
-        console.log('tried');
-      },
-      staleTime: 1000 * 60 * 30,
-    },
-  );
+  const { data, error, isLoading } = tsr.getPost.useQuery({
+    queryKey: ['post', postId],
+    queryData: { params: { id: postId } },
+    networkMode: 'offlineFirst',
+    enabled: postId !== undefined,
+    staleTime: 1000 * 60 * 30,
+  });
 
-  const { mutate: deletePost } = api.deletePost.useMutation({
+  const { mutate: deletePost } = tsr.deletePost.useMutation({
     onSuccess: () => {
       router.push('/');
       toast.success('Post deleted!');

@@ -1,19 +1,15 @@
-const cleanup = require('rollup-plugin-cleanup');
-
-/**
- * @typedef {import('rollup').RollupOptions} RollupOptions
- * @type RollupOptions
- * @param {RollupOptions} config
- */
-
+/** @type {import("rollup").RollupOptionsFunction} */
 const rollupConfig = (config) => {
-  const newConfig = {
+  return {
     ...config,
-    plugins: [...config.plugins, cleanup({
-      extensions: ['ts', 'tsx', 'js', 'jsx'],
-    })]
-  };
-  return newConfig
+    external: (source, importer, isResolved) => {
+      if (source.startsWith('@ts-rest/')) {
+        return true;
+      }
+      return config.external(source, importer, isResolved);
+    },
+    plugins: [...config.plugins]
+  }
 }
 
 module.exports = rollupConfig
